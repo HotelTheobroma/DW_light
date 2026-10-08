@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>·</title>
+<style>
+  :root { --void:#07040f; --water:#7fd6ff; --glow:#b48cff; --text:#e6dcff; --muted:#8f84a8; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body { background: radial-gradient(ellipse at 50% 35%, #1d1035 0%, var(--void) 70%) fixed; color: var(--text);
+         font-family: "Pretendard","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+         display: flex; flex-direction: column; align-items: center; gap: 14px; min-height: 100vh; padding: 18px 16px 32px; }
+  nav { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+  nav button { background: transparent; color: var(--muted); border: 1px solid #3a2a5c; border-radius: 999px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
+  nav button.on { color: var(--text); border-color: var(--glow); background: rgba(108,63,196,.25); box-shadow: 0 0 10px rgba(180,140,255,.3); }
+  canvas { width: min(640px, 100%); aspect-ratio: 1; display: block; border-radius: 6px; touch-action: none;
+           clip-path: polygon(2% 1%,40% 0,62% 2%,98% 0,100% 35%,98% 70%,100% 99%,60% 100%,30% 98%,0 100%,1% 60%,0 25%); }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: center; }
+  button.act { background: #1c1430; color: var(--text); border: 1px solid #4a3a72; border-radius: 8px; padding: 9px 14px; font-size: 14px; cursor: pointer; min-width: 44px; }
+  button.act:hover { border-color: var(--glow); box-shadow: 0 0 8px rgba(180,140,255,.35); }
+  button.save { background: linear-gradient(180deg,#5b3aa8,#3b2378); border-color: #8f6be0; color: #f1eaff; }
+  .pad { display: grid; grid-template-columns: repeat(3, 46px); gap: 4px; }
+  .pad button { padding: 8px 0; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<nav id="nav" style="display:none"></nav>
+<canvas id="cv" width="640" height="640"></canvas>
+<div class="row" id="ctrl"></div>
+<div class="row"><button class="act save" onclick="save()">이미지로 저장</button></div>
+
+<script>
+/* ─────────────────────────── 공통 ─────────────────────────── */
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const SZ = 640, DPR = Math.min(2, window.devicePixelRatio || 1);
+cv.width = SZ * DPR; cv.height = SZ * DPR; ctx.scale(DPR, DPR);
+const WATER = '#7fd6ff', GLOW = '#b48cff';
+
+// 배경(파편) 미리 그려 두기 — 고정 시드
+const bgCanvas = document.createElement('canvas'); bgCanvas.width = SZ; bgCanvas.height = SZ;
+(function () {
+  const g = bgCanvas.getContext('2d'); let s = 7; const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280;
+  const bg = g.createRadialGradient(SZ / 2, SZ * .4, 30, SZ / 2, SZ * .4, SZ * .8);
+  bg.addColorStop(0, '#1d1035'); bg.addColorStop(1, '#07040f'); g.fillStyle = bg; g.fillRect(0, 0, SZ, SZ);
+  for (let i = 0; i < 16; i++) {
+    g.save(); g.translate(rnd() * SZ, rnd() * SZ); g.rotate(rnd() * 6.28); const w = 10 + rnd() * 40;
+    g.fillStyle = 'rgba(43,29,72,.55)'; g.strokeStyle = 'rgba(58,42,92,.8)';
+    g.beginPath(); g.moveTo(0, 0); g.lineTo(w, w * .2); g.lineTo(w * .8, w); g.lineTo(0, w * .7); g.closePath(); g.fill(); g.stroke(); g.restore();
+  }
+  g.strokeStyle = 'rgba(61,44,99,.6)'; g.lineWidth = 1;
+  for (let i = 0; i < 6; i++) { g.beginPath(); const x = rnd() * SZ, y = rnd() * SZ; g.moveTo(x, y); g.lineTo(x + (rnd() - .5) * 120, y + (rnd() - .5) * 120); g.stroke(); }
+})();
+function drawBG() { ctx.drawImage(bgCanvas, 0, 0); }
+function rr(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+function stone(x, y, w, h, lit) {
+  rr(x, y, w, h, 8); const g = ctx.createLinearGradient(x, y, x + w, y + h);
+  g.addColorStop(0, '#3b3150'); g.addColorStop(.6, '#2a2238'); g.addColorStop(1, '#1d1729'); ctx.fillStyle = g; ctx.fill();
+  ctx.strokeStyle = lit ? WATER : '#4a3c66'; ctx.lineWidth = lit ? 2.5 : 1.2; ctx.stroke();
+}
+function pt(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * SZ, y: (e.clientY - r.top) / r.height * SZ }; }
+const ease = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+
+/* ─────────────────────── ④ 손전등의 빛 ─────────────────────── */
+const Light = (() => {
+  const GRID = ["../....", "#......", "..#.m\\.", ".m.....", ".m.mT..", "#.#.#..", "#..m.m."];
+  const M = 7, CELL = 64, X0 = (SZ - M * CELL) / 2 + 16, Y0 = (SZ - M * CELL) / 2, SR = 3;
+  const INIT = { '6,3': '/', '3,1': '/', '2,4': '/', '4,1': '/', '6,5': '\\', '4,3': '/' };
+  let mir, rot, solved;
+  function reset() { mir = { ...INIT }; rot = {}; Object.keys(mir).forEach(k => rot[k] = mir[k] === '/' ? -45 : 45); solved = false; }
+  function at(r, c) { const ch = GRID[r][c]; return ch === 'm' ? mir[r + ',' + c] : ch; }
+  function trace() {
+    let r = SR, c = -1, dr = 0, dc = 1; const pts = [[X0 - 30, Y0 + SR * CELL + CELL / 2]]; const seen = new Set(); let hit = false;
+    while (true) {
+      r += dr; c += dc;
+      const cx = X0 + c * CELL + CELL / 2, cy = Y0 + r * CELL + CELL / 2;
+      if (r < 0 || r >= M || c < 0 || c >= M) { pts.push([X0 + (c + .5) * CELL - dc * CELL * .5 + dc * 20, Y0 + (r + .5) * CELL - dr * CELL * .5 + dr * 20]); break; }
+      const key = r + ',' + c + ',' + dr + ',' + dc; if (seen.has(key)) break; seen.add(key);
+      const ch = at(r, c);
+      if (ch === '#') { pts.push([cx - dc * CELL * .42, cy - dr * CELL * .42]); break; }
+      if (ch === 'T') { pts.push([cx, cy]); hit = true; break; }
+      if (ch === '/') { pts.push([cx, cy]); [dr, dc] = [-dc, -dr]; }
+      else if (ch === '\\') { pts.push([cx, cy]); [dr, dc] = [dc, dr]; }
+    }
+    return { pts, hit };
+  }
+  function draw(t) {
+    drawBG();
+    ctx.fillStyle = 'rgba(20,30,70,.55)'; ctx.strokeStyle = '#2c3a6b'; ctx.lineWidth = 2; rr(X0 - 10, Y0 - 10, M * CELL + 20, M * CELL + 20, 14); ctx.fill(); ctx.stroke();
+    for (let r = 0; r < M; r++) for (let c = 0; c < M; c++) {
+      const x = X0 + c * CELL, y = Y0 + r * CELL, ch = GRID[r][c];
+      ctx.strokeStyle = 'rgba(127,214,255,.06)'; ctx.lineWidth = 1; ctx.strokeRect(x, y, CELL, CELL);
+      if (ch === '#') stone(x + 6, y + 6, CELL - 12, CELL - 12, false);
+    }
+    const { pts, hit } = trace(); solved = hit;
+    // 빛
+    ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
+    ctx.strokeStyle = '#fff6d0'; ctx.lineWidth = 3; ctx.shadowColor = '#ffe9a8'; ctx.shadowBlur = 16; ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,240,190,.25)'; ctx.lineWidth = 10; ctx.stroke(); ctx.shadowBlur = 0;
+    // 거울
+    for (let r = 0; r < M; r++) for (let c = 0; c < M; c++) {
+      const ch = GRID[r][c]; if (!('m/\\'.includes(ch))) continue;
+      const k = r + ',' + c, cx = X0 + c * CELL + CELL / 2, cy = Y0 + r * CELL + CELL / 2;
+      const target = ch === 'm' ? (mir[k] === '/' ? -45 : 45) : (ch === '/' ? -45 : 45);
+      if (ch === 'm') rot[k] += (target - rot[k]) * .25;
+      const a = (ch === 'm' ? rot[k] : target) * Math.PI / 180;
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(a);
+      if (ch === 'm') { ctx.beginPath(); ctx.arc(0, 0, CELL * .42, 0, 7); ctx.strokeStyle = 'rgba(180,140,255,.25)'; ctx.lineWidth = 1; ctx.stroke(); }
+      const L = CELL * .38; ctx.fillStyle = ch === 'm' ? '#bfe9ff' : '#7f8fb0';
+      ctx.shadowColor = ch === 'm' ? WATER : 'transparent'; ctx.shadowBlur = ch === 'm' ? 8 : 0;
+      ctx.beginPath(); ctx.moveTo(-L, -3); ctx.lineTo(L * .3, -4); ctx.lineTo(L, -2); ctx.lineTo(L, 3); ctx.lineTo(-L * .2, 4); ctx.lineTo(-L, 2); ctx.closePath(); ctx.fill();
+      ctx.restore(); ctx.shadowBlur = 0;
+    }
+    // 비친 손
+    for (let r = 0; r < M; r++) for (let c = 0; c < M; c++) if (GRID[r][c] === 'T') {
+      const cx = X0 + c * CELL + CELL / 2, cy = Y0 + r * CELL + CELL / 2;
+      ctx.save(); ctx.globalAlpha = hit ? 1 : .35 + .1 * Math.sin(t / 500); ctx.strokeStyle = hit ? WATER : '#9fb4d8'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+      if (hit) { ctx.shadowColor = WATER; ctx.shadowBlur = 20; }
+      ctx.beginPath(); ctx.ellipse(cx, cy + 6, 11, 12, 0, 0, 7); ctx.stroke();
+      [-9, -3, 3, 9].forEach((dx, i) => { ctx.beginPath(); ctx.moveTo(cx + dx * .9, cy - 4); ctx.lineTo(cx + dx * 1.15, cy - 18 + Math.abs(i - 1.5) * 3); ctx.stroke(); });
+      ctx.beginPath(); ctx.moveTo(cx - 11, cy + 4); ctx.lineTo(cx - 19, cy - 2); ctx.stroke();
+      ctx.restore();
+    }
+    // 손전등
+    const fy = Y0 + SR * CELL + CELL / 2; ctx.fillStyle = '#d8d0e8'; rr(X0 - 52, fy - 8, 26, 16, 3); ctx.fill(); ctx.fillStyle = '#fff6d0'; ctx.shadowColor = '#ffe9a8'; ctx.shadowBlur = 12; rr(X0 - 28, fy - 10, 8, 20, 2); ctx.fill(); ctx.shadowBlur = 0;
+  }
+  function down(e) {
+    const q = pt(e), c = Math.floor((q.x - X0) / CELL), r = Math.floor((q.y - Y0) / CELL);
+    if (r < 0 || r >= M || c < 0 || c >= M || GRID[r][c] !== 'm') return;
+    const k = r + ',' + c; mir[k] = mir[k] === '/' ? '\\' : '/';
+  }
+  reset();
+  return { name: '손전등', file: 'light', draw, down, controls: () => [] };
+})();
+
+/* ─────────────────────────── 틀 ─────────────────────────── */
+const PUZZLES = [Light];
+let cur = 0;
+function btn(label, fn) { const b = document.createElement('button'); b.className = 'act'; b.textContent = label; b.onclick = fn; return b; }
+function select(i) {
+  if (PUZZLES[cur].leave) PUZZLES[cur].leave();
+  cur = i;
+  document.querySelectorAll('nav button').forEach((b, k) => b.classList.toggle('on', k === i));
+  const ctrl = document.getElementById('ctrl'); ctrl.innerHTML = ''; PUZZLES[i].controls().forEach(el => ctrl.appendChild(el));
+}
+PUZZLES.forEach((p, i) => { const b = document.createElement('button'); b.textContent = p.name; b.onclick = () => select(i); document.getElementById('nav').appendChild(b); });
+cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); PUZZLES[cur].down && PUZZLES[cur].down(e); });
+cv.addEventListener('pointermove', e => PUZZLES[cur].move && PUZZLES[cur].move(e));
+cv.addEventListener('pointerup', e => PUZZLES[cur].up && PUZZLES[cur].up(e));
+document.addEventListener('keydown', e => { if (PUZZLES[cur].key && e.key.startsWith('Arrow')) e.preventDefault(); PUZZLES[cur].key && PUZZLES[cur].key(e.key); });
+function loop(t) { ctx.setTransform(DPR, 0, 0, DPR, 0, 0); PUZZLES[cur].draw(t); requestAnimationFrame(loop); }
+function save() {
+  cv.toBlob(blob => { const url = URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = PUZZLES[cur].file + '.png';
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000); }, 'image/png');
+}
+select(0); requestAnimationFrame(loop);
+</script>
+</body>
+</html>
