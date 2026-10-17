@@ -58,7 +58,6 @@
 
 <script>
 
-/* ── 모바일: 이미지 저장 ── */
 const COARSE = matchMedia('(pointer: coarse)').matches;
 function deliver(blob, name) {
   if (!COARSE) {
@@ -79,13 +78,11 @@ function deliver(blob, name) {
   });
   document.body.appendChild(box);
 }
-/* ─────────────────────────── 공통 ─────────────────────────── */
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
 const SZ = 640, DPR = Math.min(2, window.devicePixelRatio || 1);
 cv.width = SZ * DPR; cv.height = SZ * DPR; ctx.scale(DPR, DPR);
 const WATER = '#7fd6ff', GLOW = '#b48cff';
 
-// 배경(파편) 미리 그려 두기 — 고정 시드
 const bgCanvas = document.createElement('canvas'); bgCanvas.width = SZ; bgCanvas.height = SZ;
 (function () {
   const g = bgCanvas.getContext('2d'); let s = 7; const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280;
@@ -109,7 +106,6 @@ function stone(x, y, w, h, lit) {
 function pt(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * SZ, y: (e.clientY - r.top) / r.height * SZ }; }
 const ease = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 
-/* ─────────────────────── ④ 손전등의 빛 ─────────────────────── */
 const Light = (() => {
   const GRID = ["../....", "#......", "..#.m\\.", ".m.....", ".m.mT..", "#.#.#..", "#..m.m."];
   const M = 7, CELL = 64, X0 = (SZ - M * CELL) / 2 + 16, Y0 = (SZ - M * CELL) / 2, SR = 3;
@@ -141,11 +137,9 @@ const Light = (() => {
       if (ch === '#') stone(x + 6, y + 6, CELL - 12, CELL - 12, false);
     }
     const { pts, hit } = trace(); solved = hit;
-    // 빛
     ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
     ctx.strokeStyle = '#fff6d0'; ctx.lineWidth = 3; ctx.shadowColor = '#ffe9a8'; ctx.shadowBlur = 16; ctx.stroke();
     ctx.strokeStyle = 'rgba(255,240,190,.25)'; ctx.lineWidth = 10; ctx.stroke(); ctx.shadowBlur = 0;
-    // 거울
     for (let r = 0; r < M; r++) for (let c = 0; c < M; c++) {
       const ch = GRID[r][c]; if (!('m/\\'.includes(ch))) continue;
       const k = r + ',' + c, cx = X0 + c * CELL + CELL / 2, cy = Y0 + r * CELL + CELL / 2;
@@ -159,7 +153,6 @@ const Light = (() => {
       ctx.beginPath(); ctx.moveTo(-L, -3); ctx.lineTo(L * .3, -4); ctx.lineTo(L, -2); ctx.lineTo(L, 3); ctx.lineTo(-L * .2, 4); ctx.lineTo(-L, 2); ctx.closePath(); ctx.fill();
       ctx.restore(); ctx.shadowBlur = 0;
     }
-    // 비친 손
     for (let r = 0; r < M; r++) for (let c = 0; c < M; c++) if (GRID[r][c] === 'T') {
       const cx = X0 + c * CELL + CELL / 2, cy = Y0 + r * CELL + CELL / 2;
       ctx.save(); ctx.globalAlpha = hit ? 1 : .35 + .1 * Math.sin(t / 500); ctx.strokeStyle = hit ? WATER : '#9fb4d8'; ctx.lineWidth = 3; ctx.lineCap = 'round';
@@ -169,7 +162,6 @@ const Light = (() => {
       ctx.beginPath(); ctx.moveTo(cx - 11, cy + 4); ctx.lineTo(cx - 19, cy - 2); ctx.stroke();
       ctx.restore();
     }
-    // 손전등
     const fy = Y0 + SR * CELL + CELL / 2; ctx.fillStyle = '#d8d0e8'; rr(X0 - 52, fy - 8, 26, 16, 3); ctx.fill(); ctx.fillStyle = '#fff6d0'; ctx.shadowColor = '#ffe9a8'; ctx.shadowBlur = 12; rr(X0 - 28, fy - 10, 8, 20, 2); ctx.fill(); ctx.shadowBlur = 0;
   }
   function down(e) {
@@ -181,7 +173,6 @@ const Light = (() => {
   return { name: '손전등', file: 'light', draw, down, controls: () => [] };
 })();
 
-/* ─────────────────────────── 틀 ─────────────────────────── */
 const PUZZLES = [Light];
 let cur = 0;
 function btn(label, fn) { const b = document.createElement('button'); b.className = 'act'; b.textContent = label; b.onclick = fn; return b; }
